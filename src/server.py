@@ -20,6 +20,28 @@ def get_video_metadata(file_path: str) -> str:
     if not os.path.exists(file_path):
         return f"Error: File not found at :{file_path}"
     
+    try:
+        probe = ffmpeg.probe(file_path)
+
+        format_info = probe.get('format', {})
+        duration = float(format_info.get('duration', 0))
+        filename = os.path.basename(file_path)
+
+        video_stream = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
+        info = [f"File: {filename}", f"Duration: {duration:.2f}"]
+
+        if video_stream:
+            width = video_stream.get('width', 'N/A')
+            height = video_stream.get('height', 'N/A')
+            codec = video_stream.get('codec_name', 'N/A')
+            info.append(f"Video: {width}x{height} ({codec})")
+        else:
+            info.append("Type: Audio only")
+
+        return "\n".join(info)
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
     return f"Valid path: {file_path}"
 
 @mcp.tool

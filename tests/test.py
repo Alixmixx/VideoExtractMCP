@@ -8,4 +8,4 @@ async def call_tool(s: str):
         result = await client.call_tool("get_video_metadata", {"file_path": s})
         print(result)
 
-asyncio.run(call_tool('miao'))
+asyncio.run(call_tool('/Users/amuller/Documents/VideoExtractMCP/2025-12-19 15-17-42.mov'))
