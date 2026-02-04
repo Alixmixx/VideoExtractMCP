@@ -1,0 +1,9 @@
+[project]
+name = "videoextractmcp"
+version = "0.0.1"
+description = "Video Extract MCP is a tool for extracting video frames and metadata using the FastMCP library."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.0.0b1",
+]
