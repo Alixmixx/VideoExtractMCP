@@ -42,8 +42,6 @@ def get_video_metadata(file_path: str) -> str:
     except Exception as e:
         return f"{type(e).__name__}: {e}"
 
-    return f"Valid path: {file_path}"
-
 @mcp.tool
 def transcribe_video(file_path: str) -> str:
     """
@@ -53,7 +51,19 @@ def transcribe_video(file_path: str) -> str:
     if not os.path.exists(file_path):
         return f"Error: File not found at :{file_path}"
     
-    return f"path: {file_path}"
+    try:
+        segments, _ = model.transcribe(file_path, beam_size=5)
+        transcript = []
+
+        for segment in segments:
+            # format [00.00 -> 00.00] text
+            line = f"[{segment.start:.2f} -> {segment.end:.2f}] {segment.text}"
+            transcript.append(line)
+
+        return "\n".join(transcript)
+
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
 
 @mcp.tool
 def cut_video(file_path: str, start_time: float, end_time: float) -> str:
