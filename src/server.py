@@ -77,4 +77,19 @@ def cut_video(file_path: str, start_time: float, end_time: float) -> str:
     """
     if not os.path.exists(file_path):
         return f"Error: File not found at :{file_path}"
-    return ""
+    
+    base, ext = os.path.splitext(file_path)
+    output_path = f"{base}_clip{ext}"
+
+    try:
+        (
+            ffmpeg
+            .input(file_path, ss=start_time, to=end_time)
+            .output(output_path)
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        return f"Success! Clip saved to: {output_path}"
+    
+    except ffmpeg.Error as e:
+        return f"Error cutting video: {e.stderr.decode()}"
