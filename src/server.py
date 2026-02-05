@@ -93,3 +93,47 @@ def cut_video(file_path: str, start_time: float, end_time: float) -> str:
     
     except ffmpeg.Error as e:
         return f"Error cutting video: {e.stderr.decode()}"
+    
+@mcp.tool()
+def create_supercut(file_path: str, segments: list[list[float]]) -> str:
+    """
+    Extracts multiple time segments and concatenates them into a single video.
+    
+    Args:
+        file_path: Path to the source video.
+        segments: A list of [start, end] pairs (in seconds). 
+                  Example: [[10.5, 20.0], [50.0, 60.5]] will combine 
+                  seconds 10.5-20.0 AND 50.0-60.5 into one video.
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at: {file_path}"
+    
+    if not segments:
+        return "Error: No segments provided."
+
+    base, ext = os.path.splitext(file_path)
+    output_path = f"{base}_supercut{ext}"
+    
+    try:
+        input_streams = []
+        for start, end in segments:
+            # open the file multiple times virtually.
+            clip = ffmpeg.input(file_path, ss=start, to=end)
+            # split the video and audio for concat
+            input_streams.append(clip.video)
+            input_streams.append(clip.audio)
+        
+        joined = ffmpeg.concat(*input_streams, v=1, a=1)
+        
+        (
+            joined
+            .output(output_path)
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        
+        return f"Success! Supercut created at: {output_path}"
+
+    except ffmpeg.Error as e:
+        error_log = e.stderr.decode() if e.stderr else "No details"
+        return f"FFmpeg Error: {error_log}"

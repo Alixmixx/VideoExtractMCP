@@ -18,4 +18,14 @@ async def call_tool(s: str):
         })
         print(result)
 
+        result = await client.call_tool("create_supercut", {
+            "file_path": s,
+            "segments": [
+                [230.80 , 235.80],
+                [410.80 , 414.80],
+                [416.80 , 420.80]
+            ]
+        })
+        print(result)
+
 asyncio.run(call_tool('/Users/amuller/Documents/VideoExtractMCP/2025-12-19 15-17-42.mov'))
