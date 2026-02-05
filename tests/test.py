@@ -8,14 +8,18 @@ async def call_tool(s: str):
         result = await client.call_tool("get_video_metadata", {"file_path": s})
         print(result)
         
-        result = await client.call_tool("transcribe_video", {"file_path": s})
+        result = await client.call_tool("get_raw_transcript", {"file_path": s})
         print(result)
 
         result = await client.call_tool("extract_clip", {
             "file_path": s,
             "start_time": 230.80,
             "end_time": 235.80,
-            "output_format": 'short'
+            "output_format": 'short',
+            "captions": [
+                {"start": 0.5, "end": 2.5, "text": "Testing single clip caption"},
+                {"start": 3.0, "end": 4.5, "text": "Vertical blur check"}
+            ]
         })
         print(result)
 
@@ -23,8 +27,12 @@ async def call_tool(s: str):
             "file_path": s,
             "segments": [
                 [230.80 , 235.80],
-                [410.80 , 414.80],
-                [416.80 , 420.80]
+                [410.80 , 414.80]
+            ],
+            "output_format": 'short',
+            "captions": [
+                {"start": 1.0, "end": 4.0, "text": "Supercut Segment 1"},
+                {"start": 6.0, "end": 8.0, "text": "Supercut Segment 2"}
             ]
         })
         print(result)
