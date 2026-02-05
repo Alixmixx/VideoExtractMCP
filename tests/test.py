@@ -11,10 +11,11 @@ async def call_tool(s: str):
         result = await client.call_tool("transcribe_video", {"file_path": s})
         print(result)
 
-        result = await client.call_tool("cut_video", {
+        result = await client.call_tool("extract_clip", {
             "file_path": s,
             "start_time": 230.80,
-            "end_time": 235.80
+            "end_time": 235.80,
+            "output_format": 'short'
         })
         print(result)
 

@@ -3,6 +3,8 @@ from faster_whisper import WhisperModel
 import ffmpeg
 import os
 
+from utils import create_blurred_background_filter
+
 # init the MCP
 mcp = FastMCP("Media Factory")
 
@@ -66,7 +68,7 @@ def transcribe_video(file_path: str) -> str:
         return f"{type(e).__name__}: {e}"
 
 @mcp.tool
-def cut_video(file_path: str, start_time: float, end_time: float) -> str:
+def extract_clip(file_path: str, start_time: float, end_time: float, output_format: str = 'original') -> str:
     """
     Extarct a specific clip from a video file
     
@@ -74,21 +76,31 @@ def cut_video(file_path: str, start_time: float, end_time: float) -> str:
         file_path: Path to the source video
         start_time: Start time in seconds
         end_timeL End time in seconds
+        output_format: 'original' (keep aspect ratio) or 'short' (convert to 9:16)
     """
     if not os.path.exists(file_path):
         return f"Error: File not found at :{file_path}"
     
     base, ext = os.path.splitext(file_path)
-    output_path = f"{base}_clip{ext}"
+    output_path = f"{base}_clip_{output_format}{ext}"
 
     try:
+        # split input stream
+        input_stream = ffmpeg.input(file_path, ss=start_time, to=end_time)
+        video_track = input_stream.video
+        audio_track = input_stream.audio
+
+        # apply the blurred background filter for 'short'
+        if output_format == 'short':
+            video_track = create_blurred_background_filter(video_track)
+
         (
             ffmpeg
-            .input(file_path, ss=start_time, to=end_time)
-            .output(output_path)
+            .output(video_track, audio_track, output_path)
             .overwrite_output()
             .run(quiet=True)
         )
+        
         return f"Success! Clip saved to: {output_path}"
     
     except ffmpeg.Error as e:
