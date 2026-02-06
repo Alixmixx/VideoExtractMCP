@@ -177,3 +177,39 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
     except ffmpeg.Error as e:
         error_log = e.stderr.decode() if e.stderr else "No details"
         return f"FFmpeg Error: {error_log}"
+
+@mcp.tool()
+def detect_scenes(file_path: str, threshold: float = 27.0, method: str = 'content') -> str:
+    """
+    Detect scene changes in a video file.
+
+    Args:
+        file_path: Path to the source video
+        threshold: Sensitivity of detection (lower = more scenes). Default 27.0
+        method: 'content' (pixel changes) or 'adaptive' (rolling average)
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at: {file_path}"
+
+    try:
+        from scenedetect import detect, ContentDetector, AdaptiveDetector
+
+        if method == 'adaptive':
+            detector = AdaptiveDetector(adaptive_threshold=threshold)
+        else:
+            detector = ContentDetector(threshold=threshold)
+
+        scene_list = detect(file_path, detector)
+
+        scenes = []
+        for i, (start, end) in enumerate(scene_list, 1):
+            scenes.append({
+                "scene": i,
+                "start": round(start.get_seconds(), 2),
+                "end": round(end.get_seconds(), 2)
+            })
+
+        return json.dumps(scenes, indent=2)
+
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
