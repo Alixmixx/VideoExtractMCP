@@ -24,6 +24,34 @@ def create_blurred_background_filter(stream, width=1080, height=1920):
     # overlay FG centered on BG
     return ffmpeg.overlay(bg, fg, x="(W-w)/2", y="(H-h)/2")
 
+def get_format_dimensions(output_format, custom_ratio=None):
+    """
+    Return (width, height) for the given output format.
+    Supports 'original', 'short' (9:16), 'square' (1:1), 'custom' with a ratio string like "4:5".
+    Returns None for 'original' (no resize needed).
+    """
+    if output_format == 'original':
+        return None
+    if output_format == 'short':
+        return (1080, 1920)
+    if output_format == 'square':
+        return (1080, 1080)
+    if output_format == 'custom' and custom_ratio:
+        parts = custom_ratio.split(':')
+        if len(parts) != 2:
+            raise ValueError(f"Invalid ratio format '{custom_ratio}', expected 'W:H' e.g. '4:5'")
+        rw, rh = int(parts[0]), int(parts[1])
+        # scale so the larger dimension is 1080
+        if rw >= rh:
+            w = 1080
+            h = int(1080 * rh / rw)
+        else:
+            h = 1920
+            w = int(1920 * rw / rh)
+        # ensure even dimensions for codec compatibility
+        return (w - w % 2, h - h % 2)
+    return None
+
 def _escape_drawtext(text):
     """Escape special characters for FFmpeg drawtext filter."""
     text = text.replace("\\", "\\\\")

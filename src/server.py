@@ -5,7 +5,7 @@ import os
 import json
 import re
 from typing import Optional
-from utils import create_blurred_background_filter, build_drawtext_filters
+from utils import create_blurred_background_filter, build_drawtext_filters, get_format_dimensions
 
 # init the MCP
 mcp = FastMCP("Media Factory")
@@ -71,7 +71,7 @@ def get_raw_transcript(file_path: str) -> str:
         return f"{type(e).__name__}: {e}"
 
 @mcp.tool
-def extract_clip(file_path: str, start_time: float, end_time: float, output_format: str = 'original', captions: Optional[list[dict]] = None) -> str:
+def extract_clip(file_path: str, start_time: float, end_time: float, output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None) -> str:
     """
     Extract a specific clip from a video file
 
@@ -79,7 +79,8 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         file_path: Path to the source video
         start_time: Start time in seconds
         end_time: End time in seconds
-        output_format: 'original' (keep aspect ratio) or 'short' (convert to 9:16)
+        output_format: 'original', 'short' (9:16), 'square' (1:1), or 'custom'
+        custom_ratio: Required when output_format='custom', e.g. '4:5'
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
     """
     if not os.path.exists(file_path):
@@ -89,19 +90,21 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
     final_output = f"{base}_clip_{output_format}{ext}"
 
     try:
+        dims = get_format_dimensions(output_format, custom_ratio)
+
         input_stream = ffmpeg.input(file_path, ss=start_time, to=end_time)
         video_track = input_stream.video
         audio_track = input_stream.audio
 
-        if output_format == 'short':
-            video_track = create_blurred_background_filter(video_track)
+        if dims:
+            video_track = create_blurred_background_filter(video_track, width=dims[0], height=dims[1])
 
         # apply captions via drawtext filters
         if captions:
             probe = ffmpeg.probe(file_path)
             video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-            if output_format == 'short':
-                video_width, video_height = 1080, 1920
+            if dims:
+                video_width, video_height = dims
             else:
                 video_width = int(video_info['width'])
                 video_height = int(video_info['height'])
@@ -120,7 +123,7 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         return f"Error cutting video: {e.stderr.decode()}"
 
 @mcp.tool()
-def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', captions: Optional[list[dict]] = None) -> str:
+def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None) -> str:
     """
     Extracts multiple time segments and concatenates them into a single video.
 
@@ -129,7 +132,8 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
         segments: A list of [start, end] pairs (in seconds).
                   Example: [[10.5, 20.0], [50.0, 60.5]] will combine
                   seconds 10.5-20.0 AND 50.0-60.5 into one video.
-        output_format: 'original' (keep aspect ratio) or 'short' (convert to 9:16)
+        output_format: 'original', 'short' (9:16), 'square' (1:1), or 'custom'
+        custom_ratio: Required when output_format='custom', e.g. '4:5'
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
     """
     if not os.path.exists(file_path):
@@ -142,6 +146,8 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
     final_output = f"{base}_supercut_{output_format}{ext}"
 
     try:
+        dims = get_format_dimensions(output_format, custom_ratio)
+
         input_streams = []
         for start, end in segments:
             clip = ffmpeg.input(file_path, ss=start, to=end)
@@ -152,15 +158,15 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
         video_track = joined.node[0]
         audio_track = joined.node[1]
 
-        if output_format == 'short':
-            video_track = create_blurred_background_filter(video_track)
+        if dims:
+            video_track = create_blurred_background_filter(video_track, width=dims[0], height=dims[1])
 
         # apply captions via drawtext filters
         if captions:
             probe = ffmpeg.probe(file_path)
             video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-            if output_format == 'short':
-                video_width, video_height = 1080, 1920
+            if dims:
+                video_width, video_height = dims
             else:
                 video_width = int(video_info['width'])
                 video_height = int(video_info['height'])
