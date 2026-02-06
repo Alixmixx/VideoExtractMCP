@@ -297,3 +297,32 @@ def extract_frame(file_path: str, timestamp: float, output_format: str = 'png') 
     except ffmpeg.Error as e:
         error_log = e.stderr.decode() if e.stderr else "No details"
         return f"FFmpeg Error: {error_log}"
+
+@mcp.tool()
+def extract_audio(file_path: str, output_format: str = 'mp3') -> str:
+    """
+    Extract the audio track from a video file.
+
+    Args:
+        file_path: Path to the source video
+        output_format: Audio format, e.g. 'mp3', 'wav', 'aac' (default 'mp3')
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at: {file_path}"
+
+    base, _ = os.path.splitext(file_path)
+    output_path = f"{base}_audio.{output_format}"
+
+    try:
+        (
+            ffmpeg
+            .input(file_path)
+            .output(output_path, vn=None)
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        return f"Success! Audio saved to: {output_path}"
+
+    except ffmpeg.Error as e:
+        error_log = e.stderr.decode() if e.stderr else "No details"
+        return f"FFmpeg Error: {error_log}"
