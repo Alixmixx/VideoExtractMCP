@@ -102,21 +102,35 @@ def _escape_drawtext(text):
     text = text.replace("'", "\u2019")
     return text
 
-def build_drawtext_filters(stream, captions, video_width, video_height):
+def build_drawtext_filters(stream, captions, video_width, video_height, caption_style=None):
     """
     Chains drawtext filters for each caption with word-wrapping and
-    per-word karaoke highlighting (active word gets a gold background).
+    optional per-word karaoke highlighting.
 
     Uses a 3-layer approach per caption:
-      Layer 1 — dark background box via invisible drawtext (FFmpeg-centered)
-      Layer 2 — gold highlight rectangles via drawbox (estimated positions)
-      Layer 3 — visible white text via drawtext (FFmpeg-centered)
-    Text is always perfectly centered; only the highlight boxes use estimates.
+      Layer 1 — background box via invisible drawtext (FFmpeg-centered)
+      Layer 2 — highlight rectangles via drawbox (estimated positions, karaoke only)
+      Layer 3 — visible text via drawtext (FFmpeg-centered)
+
+    caption_style keys (all optional):
+      font_size:       int, overrides auto-calculated size
+      font_color:      str, text color (default 'white')
+      highlight_color: str, karaoke highlight box color (default '#FFE2A5@0.86')
+      bg_color:        str, background box color (default 'black@0.6')
+      position:        str, 'top', 'center', or 'bottom' (default 'bottom')
+      karaoke:         bool, enable per-word highlighting (default True)
     """
     if not captions:
         return stream
 
-    font_size = max(16, int(video_height / 35))
+    style = caption_style or {}
+    font_size = style.get('font_size', max(16, int(video_height / 35)))
+    font_color = style.get('font_color', 'white')
+    highlight_color = style.get('highlight_color', '#FFE2A5@0.86')
+    bg_color = style.get('bg_color', 'black@0.6')
+    position = style.get('position', 'bottom')
+    karaoke = style.get('karaoke', True)
+
     avg_char_w = font_size * 0.55
     space_w = font_size * 0.28
     line_height = int(font_size * 1.6)
@@ -124,6 +138,14 @@ def build_drawtext_filters(stream, captions, video_width, video_height):
     highlight_pad = 5
     text_h_est = int(font_size * 1.15)
     max_text_w = video_width - 60
+
+    # vertical position
+    if position == 'top':
+        y_anchor = int(video_height * 0.08)
+    elif position == 'center':
+        y_anchor = int(video_height * 0.45)
+    else:
+        y_anchor = int(video_height * 0.75)
 
     for caption in captions:
         text = caption['text'].strip()
@@ -152,65 +174,65 @@ def build_drawtext_filters(stream, captions, video_width, video_height):
 
         total_words = len(words)
         duration = end - start
-        base_y = int(video_height * 0.75)
 
-        # --- LAYER 1: dark background boxes (invisible text, FFmpeg-centered) ---
+        # --- LAYER 1: background boxes (invisible text, FFmpeg-centered) ---
         for li, line_words in enumerate(lines):
             line_text = ' '.join(line_words)
-            y = base_y + li * line_height
+            y = y_anchor + li * line_height
             escaped_line = _escape_drawtext(line_text)
 
             stream = stream.filter(
                 'drawtext',
                 text=escaped_line,
                 fontsize=font_size,
-                fontcolor='white@0',
+                fontcolor=f'{font_color}@0',
                 box=1,
-                boxcolor='black@0.6',
+                boxcolor=bg_color,
                 boxborderw=box_pad,
                 x='(w-text_w)/2',
                 y=str(y),
                 enable=f'between(t,{start},{end})'
             )
 
-        # --- LAYER 2: gold highlight boxes (drawbox at estimated positions) ---
-        word_idx = 0
-        for li, line_words in enumerate(lines):
-            y = base_y + li * line_height
-            line_w = sum(len(w) * avg_char_w for w in line_words) + max(0, len(line_words) - 1) * space_w
-            line_x = max(box_pad, int((video_width - line_w) / 2))
+        # --- LAYER 2: highlight boxes (karaoke mode only) ---
+        if karaoke and total_words > 0 and duration > 0:
+            word_idx = 0
+            for li, line_words in enumerate(lines):
+                y = y_anchor + li * line_height
+                line_w = sum(len(w) * avg_char_w for w in line_words) + max(0, len(line_words) - 1) * space_w
+                line_x = max(box_pad, int((video_width - line_w) / 2))
 
-            cur_x = float(line_x)
-            for word in line_words:
-                word_w = len(word) * avg_char_w
-                ws = start + (word_idx / total_words) * duration
-                we = start + ((word_idx + 1) / total_words) * duration
+                cur_x = float(line_x)
+                for word in line_words:
+                    word_w = len(word) * avg_char_w
+                    ws = start + (word_idx / total_words) * duration
+                    we = start + ((word_idx + 1) / total_words) * duration
 
-                stream = stream.filter(
-                    'drawbox',
-                    x=int(cur_x - highlight_pad),
-                    y=int(y - highlight_pad),
-                    width=int(word_w + 2 * highlight_pad),
-                    height=int(text_h_est + 2 * highlight_pad),
-                    color='#FFE2A5@0.86',
-                    t='fill',
-                    enable=f'between(t,{ws},{we})'
-                )
+                    stream = stream.filter(
+                        'drawbox',
+                        x=int(cur_x - highlight_pad),
+                        y=int(y - highlight_pad),
+                        width=int(word_w + 2 * highlight_pad),
+                        height=int(text_h_est + 2 * highlight_pad),
+                        color=highlight_color,
+                        t='fill',
+                        enable=f'between(t,{ws},{we})'
+                    )
 
-                cur_x += word_w + space_w
-                word_idx += 1
+                    cur_x += word_w + space_w
+                    word_idx += 1
 
-        # --- LAYER 3: visible white text (FFmpeg-centered, on top) ---
+        # --- LAYER 3: visible text (FFmpeg-centered, on top) ---
         for li, line_words in enumerate(lines):
             line_text = ' '.join(line_words)
-            y = base_y + li * line_height
+            y = y_anchor + li * line_height
             escaped_line = _escape_drawtext(line_text)
 
             stream = stream.filter(
                 'drawtext',
                 text=escaped_line,
                 fontsize=font_size,
-                fontcolor='white',
+                fontcolor=font_color,
                 borderw=2,
                 bordercolor='black',
                 x='(w-text_w)/2',

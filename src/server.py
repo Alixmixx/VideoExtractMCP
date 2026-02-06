@@ -71,7 +71,7 @@ def get_raw_transcript(file_path: str) -> str:
         return f"{type(e).__name__}: {e}"
 
 @mcp.tool
-def extract_clip(file_path: str, start_time: float, end_time: float, output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None) -> str:
+def extract_clip(file_path: str, start_time: float, end_time: float, output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None, caption_style: Optional[dict] = None) -> str:
     """
     Extract a specific clip from a video file
 
@@ -82,6 +82,7 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         output_format: 'original', 'short' (9:16), 'square' (1:1), or 'custom'
         custom_ratio: Required when output_format='custom', e.g. '4:5'
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
+        caption_style: Optional dict with keys: font_size, font_color, highlight_color, bg_color, position (top/center/bottom), karaoke (bool)
     """
     if not os.path.exists(file_path):
         return f"Error: File not found at :{file_path}"
@@ -108,7 +109,7 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
             else:
                 video_width = int(video_info['width'])
                 video_height = int(video_info['height'])
-            video_track = build_drawtext_filters(video_track, captions, video_width, video_height)
+            video_track = build_drawtext_filters(video_track, captions, video_width, video_height, caption_style)
 
         (
             ffmpeg
@@ -123,7 +124,7 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         return f"Error cutting video: {e.stderr.decode()}"
 
 @mcp.tool()
-def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None, transition: Optional[str] = None, transition_duration: float = 0.5) -> str:
+def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None, caption_style: Optional[dict] = None, transition: Optional[str] = None, transition_duration: float = 0.5) -> str:
     """
     Extracts multiple time segments and concatenates them into a single video.
 
@@ -135,6 +136,7 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
         output_format: 'original', 'short' (9:16), 'square' (1:1), or 'custom'
         custom_ratio: Required when output_format='custom', e.g. '4:5'
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
+        caption_style: Optional dict with keys: font_size, font_color, highlight_color, bg_color, position (top/center/bottom), karaoke (bool)
         transition: Optional, 'crossfade' (smooth blend between segments) or 'fade' (fade in/out on whole video)
         transition_duration: Duration of transition in seconds (default 0.5)
     """
@@ -180,7 +182,7 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
             else:
                 video_width = int(video_info['width'])
                 video_height = int(video_info['height'])
-            video_track = build_drawtext_filters(video_track, captions, video_width, video_height)
+            video_track = build_drawtext_filters(video_track, captions, video_width, video_height, caption_style)
 
         (
             ffmpeg
