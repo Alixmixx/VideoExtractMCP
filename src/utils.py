@@ -1,12 +1,8 @@
 import ffmpeg
-import cv2
-import numpy as np
-import os
-from PIL import Image, ImageDraw, ImageFont
 
 def create_blurred_background_filter(stream, width=1080, height=1920):
     """
-    FFmpeg filter graph: creates a 9:16 background from a 16:9 video 
+    FFmpeg filter graph: creates a 9:16 background from a 16:9 video
     by cropping, blurring, and overlaying the original.
     """
     # plit the stream, one for background (blurred), one for foreground
@@ -28,107 +24,127 @@ def create_blurred_background_filter(stream, width=1080, height=1920):
     # overlay FG centered on BG
     return ffmpeg.overlay(bg, fg, x="(W-w)/2", y="(H-h)/2")
 
-def render_caption_frame(frame, text_lines, width, height, font):
+def _escape_drawtext(text):
+    """Escape special characters for FFmpeg drawtext filter."""
+    text = text.replace("\\", "\\\\")
+    text = text.replace(":", "\\:")
+    text = text.replace("'", "\u2019")
+    return text
+
+def build_drawtext_filters(stream, captions, video_width, video_height):
     """
-    Draws specific text lines on a CV2 frame using PIL.
+    Chains drawtext filters for each caption with word-wrapping and
+    per-word karaoke highlighting (active word gets a gold background).
+
+    Uses a 3-layer approach per caption:
+      Layer 1 — dark background box via invisible drawtext (FFmpeg-centered)
+      Layer 2 — gold highlight rectangles via drawbox (estimated positions)
+      Layer 3 — visible white text via drawtext (FFmpeg-centered)
+    Text is always perfectly centered; only the highlight boxes use estimates.
     """
-    # convert CV2 (BGR) to PIL (RGB)
-    pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(pil_img)
+    if not captions:
+        return stream
 
-    # style settings
-    text_color = (255, 255, 255)
-    bg_color = (0, 0, 0, 160)
-    
-    # bottom 25% of the screen
-    start_y_pos = int(height * 0.75)
-    
-    for i, line in enumerate(text_lines):
-        text = line['text']
-        
-        # calculate text size
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-        
-        # center x
-        x_pos = (width - text_w) // 2
-        # offset y for multiple lines
-        y_pos = start_y_pos + (i * (text_h + 30))
-        
-        # draw background pill
-        padding = 15
-        draw.rounded_rectangle(
-            [x_pos - padding, y_pos - padding, x_pos + text_w + padding, y_pos + text_h + padding],
-            radius=10,
-            fill=bg_color
-        )
-        
-        # draw Text
-        draw.text((x_pos, y_pos), text, font=font, fill=text_color)
+    font_size = max(16, int(video_height / 35))
+    avg_char_w = font_size * 0.55
+    space_w = font_size * 0.28
+    line_height = int(font_size * 1.6)
+    box_pad = 10
+    highlight_pad = 5
+    text_h_est = int(font_size * 1.15)
+    max_text_w = video_width - 60
 
-    # convert back to CV2 (BGR)
-    return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    for caption in captions:
+        text = caption['text'].strip()
+        start = caption['start']
+        end = caption['end']
+        words = text.split()
+        if not words:
+            continue
 
-def burn_captions_to_video(input_path, output_path, captions):
-    """
-    Reads video frame-by-frame, draws captions, and saves output.
-    Uses a temp file for video, then merges original audio back.
-    """
-    base, _ = os.path.splitext(output_path)
-    temp_video = f"{base}_temp_video.mp4"
+        # word-wrap into lines
+        lines = []
+        current_line = []
+        current_w = 0.0
+        for word in words:
+            word_w = len(word) * avg_char_w
+            needed = word_w + (space_w if current_line else 0)
+            if current_w + needed > max_text_w and current_line:
+                lines.append(current_line[:])
+                current_line = [word]
+                current_w = word_w
+            else:
+                current_line.append(word)
+                current_w += needed
+        if current_line:
+            lines.append(current_line)
 
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise Exception("Could not open video file.")
+        total_words = len(words)
+        duration = end - start
+        base_y = int(video_height * 0.75)
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # --- LAYER 1: dark background boxes (invisible text, FFmpeg-centered) ---
+        for li, line_words in enumerate(lines):
+            line_text = ' '.join(line_words)
+            y = base_y + li * line_height
+            escaped_line = _escape_drawtext(line_text)
 
-    fourcc = cv2.VideoWriter.fourcc(*'mp4v')
-    out = cv2.VideoWriter(temp_video, fourcc, fps, (width, height))
+            stream = stream.filter(
+                'drawtext',
+                text=escaped_line,
+                fontsize=font_size,
+                fontcolor='white@0',
+                box=1,
+                boxcolor='black@0.6',
+                boxborderw=box_pad,
+                x='(w-text_w)/2',
+                y=str(y),
+                enable=f'between(t,{start},{end})'
+            )
 
-    # font loading
-    try:
-        font = ImageFont.truetype("Arial.ttf", size=int(height/35)) 
-    except:
-        font = ImageFont.load_default()
+        # --- LAYER 2: gold highlight boxes (drawbox at estimated positions) ---
+        word_idx = 0
+        for li, line_words in enumerate(lines):
+            y = base_y + li * line_height
+            line_w = sum(len(w) * avg_char_w for w in line_words) + max(0, len(line_words) - 1) * space_w
+            line_x = max(box_pad, int((video_width - line_w) / 2))
 
-    frame_idx = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        current_time = frame_idx / fps
-        
-        # find active captions for this timestamp
-        active_lines = [c for c in captions if c['start'] <= current_time <= c['end']]
-        
-        if active_lines:
-            frame = render_caption_frame(frame, active_lines, width, height, font)
-            
-        out.write(frame)
-        frame_idx += 1
-        
-    cap.release()
-    out.release()
-    
-    # merge audio
-    try:
-        probe = ffmpeg.probe(input_path)
-        has_audio = any(s['codec_type'] == 'audio' for s in probe['streams'])
-        
-        v_stream = ffmpeg.input(temp_video)
-        
-        if has_audio:
-            a_stream = ffmpeg.input(input_path).audio
-            ffmpeg.output(v_stream, a_stream, output_path).overwrite_output().run(quiet=True)
-        else:
-            ffmpeg.output(v_stream, output_path).overwrite_output().run(quiet=True)
-            
-    finally:
-        if os.path.exists(temp_video):
-            os.remove(temp_video)
+            cur_x = float(line_x)
+            for word in line_words:
+                word_w = len(word) * avg_char_w
+                ws = start + (word_idx / total_words) * duration
+                we = start + ((word_idx + 1) / total_words) * duration
+
+                stream = stream.filter(
+                    'drawbox',
+                    x=int(cur_x - highlight_pad),
+                    y=int(y - highlight_pad),
+                    width=int(word_w + 2 * highlight_pad),
+                    height=int(text_h_est + 2 * highlight_pad),
+                    color='#FFE2A5@0.86',
+                    t='fill',
+                    enable=f'between(t,{ws},{we})'
+                )
+
+                cur_x += word_w + space_w
+                word_idx += 1
+
+        # --- LAYER 3: visible white text (FFmpeg-centered, on top) ---
+        for li, line_words in enumerate(lines):
+            line_text = ' '.join(line_words)
+            y = base_y + li * line_height
+            escaped_line = _escape_drawtext(line_text)
+
+            stream = stream.filter(
+                'drawtext',
+                text=escaped_line,
+                fontsize=font_size,
+                fontcolor='white',
+                borderw=2,
+                bordercolor='black',
+                x='(w-text_w)/2',
+                y=str(y),
+                enable=f'between(t,{start},{end})'
+            )
+
+    return stream
