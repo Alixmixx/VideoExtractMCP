@@ -5,7 +5,7 @@ import os
 import json
 import re
 from typing import Optional
-from utils import create_blurred_background_filter, build_drawtext_filters, get_format_dimensions
+from utils import create_blurred_background_filter, build_drawtext_filters, get_format_dimensions, build_crossfade_concat, apply_fade_in_out
 
 # init the MCP
 mcp = FastMCP("Media Factory")
@@ -123,7 +123,7 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         return f"Error cutting video: {e.stderr.decode()}"
 
 @mcp.tool()
-def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None) -> str:
+def create_supercut(file_path: str, segments: list[list[float]], output_format: str = 'original', custom_ratio: Optional[str] = None, captions: Optional[list[dict]] = None, transition: Optional[str] = None, transition_duration: float = 0.5) -> str:
     """
     Extracts multiple time segments and concatenates them into a single video.
 
@@ -135,6 +135,8 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
         output_format: 'original', 'short' (9:16), 'square' (1:1), or 'custom'
         custom_ratio: Required when output_format='custom', e.g. '4:5'
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
+        transition: Optional, 'crossfade' (smooth blend between segments) or 'fade' (fade in/out on whole video)
+        transition_duration: Duration of transition in seconds (default 0.5)
     """
     if not os.path.exists(file_path):
         return f"Error: File not found at: {file_path}"
@@ -148,18 +150,26 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
     try:
         dims = get_format_dimensions(output_format, custom_ratio)
 
-        input_streams = []
-        for start, end in segments:
-            clip = ffmpeg.input(file_path, ss=start, to=end)
-            input_streams.append(clip.video)
-            input_streams.append(clip.audio)
+        if transition == 'crossfade' and len(segments) > 1:
+            video_track, audio_track = build_crossfade_concat(file_path, segments, transition_duration)
+        else:
+            input_streams = []
+            for start, end in segments:
+                clip = ffmpeg.input(file_path, ss=start, to=end)
+                input_streams.append(clip.video)
+                input_streams.append(clip.audio)
 
-        joined = ffmpeg.concat(*input_streams, v=1, a=1)
-        video_track = joined.node[0]
-        audio_track = joined.node[1]
+            joined = ffmpeg.concat(*input_streams, v=1, a=1)
+            video_track = joined.node[0]
+            audio_track = joined.node[1]
 
         if dims:
             video_track = create_blurred_background_filter(video_track, width=dims[0], height=dims[1])
+
+        # apply fade in/out on the whole result
+        if transition == 'fade':
+            total_dur = sum(end - start for start, end in segments)
+            video_track, audio_track = apply_fade_in_out(video_track, audio_track, total_dur, transition_duration)
 
         # apply captions via drawtext filters
         if captions:

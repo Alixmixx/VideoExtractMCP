@@ -52,6 +52,49 @@ def get_format_dimensions(output_format, custom_ratio=None):
         return (w - w % 2, h - h % 2)
     return None
 
+def build_crossfade_concat(file_path, segments, transition_duration=0.5):
+    """
+    Concatenate segments with xfade (video) and acrossfade (audio) transitions.
+    Chains iteratively: xfade(seg1, seg2) -> xfade(result, seg3) -> ...
+    Returns (video_stream, audio_stream).
+    """
+    clips_v = []
+    clips_a = []
+    durations = []
+    for start, end in segments:
+        clip = ffmpeg.input(file_path, ss=start, to=end)
+        clips_v.append(clip.video)
+        clips_a.append(clip.audio)
+        durations.append(end - start)
+
+    # start with first segment
+    video = clips_v[0]
+    audio = clips_a[0]
+    # cumulative offset tracks where each xfade happens
+    cumulative = durations[0]
+
+    for i in range(1, len(clips_v)):
+        offset = cumulative - transition_duration
+        video = ffmpeg.filter([video, clips_v[i]], 'xfade',
+                              transition='fade', duration=transition_duration, offset=offset)
+        audio = ffmpeg.filter([audio, clips_a[i]], 'acrossfade',
+                              d=transition_duration)
+        # each xfade shortens total by transition_duration
+        cumulative += durations[i] - transition_duration
+
+    return video, audio
+
+def apply_fade_in_out(video, audio, total_duration, fade_duration=0.5):
+    """
+    Apply fade-in at start and fade-out at end on both video and audio.
+    """
+    fade_out_start = max(0, total_duration - fade_duration)
+    video = video.filter('fade', type='in', duration=fade_duration)
+    video = video.filter('fade', type='out', start_time=fade_out_start, duration=fade_duration)
+    audio = audio.filter('afade', type='in', duration=fade_duration)
+    audio = audio.filter('afade', type='out', start_time=fade_out_start, duration=fade_duration)
+    return video, audio
+
 def _escape_drawtext(text):
     """Escape special characters for FFmpeg drawtext filter."""
     text = text.replace("\\", "\\\\")
