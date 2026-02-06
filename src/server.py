@@ -3,6 +3,7 @@ from faster_whisper import WhisperModel
 import ffmpeg
 import os
 import json
+import re
 from typing import Optional
 from utils import create_blurred_background_filter, build_drawtext_filters
 
@@ -211,5 +212,40 @@ def detect_scenes(file_path: str, threshold: float = 27.0, method: str = 'conten
 
         return json.dumps(scenes, indent=2)
 
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+@mcp.tool()
+def search_transcript(file_path: str, query: str) -> str:
+    """
+    Search the transcript of a video for segments matching a regex query.
+
+    Args:
+        file_path: Path to the source video
+        query: Regex pattern to search for (case-insensitive)
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at: {file_path}"
+
+    try:
+        segments, _ = model.transcribe(file_path, word_timestamps=True)
+
+        matches = []
+        for s in segments:
+            text = s.text.strip()
+            if re.search(query, text, re.IGNORECASE):
+                matches.append({
+                    "start": round(s.start, 2),
+                    "end": round(s.end, 2),
+                    "text": text
+                })
+
+        if not matches:
+            return f"No segments matching '{query}' found."
+
+        return json.dumps(matches, indent=2)
+
+    except re.error as e:
+        return f"Invalid regex pattern: {e}"
     except Exception as e:
         return f"{type(e).__name__}: {e}"
