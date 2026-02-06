@@ -267,3 +267,33 @@ def search_transcript(file_path: str, query: str) -> str:
         return f"Invalid regex pattern: {e}"
     except Exception as e:
         return f"{type(e).__name__}: {e}"
+
+@mcp.tool()
+def extract_frame(file_path: str, timestamp: float, output_format: str = 'png') -> str:
+    """
+    Extract a single frame from a video at a given timestamp.
+
+    Args:
+        file_path: Path to the source video
+        timestamp: Time in seconds to capture the frame
+        output_format: Image format, 'png' or 'jpg' (default 'png')
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at: {file_path}"
+
+    base, _ = os.path.splitext(file_path)
+    output_path = f"{base}_frame_{timestamp:.2f}.{output_format}"
+
+    try:
+        (
+            ffmpeg
+            .input(file_path, ss=timestamp)
+            .output(output_path, vframes=1)
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        return f"Success! Frame saved to: {output_path}"
+
+    except ffmpeg.Error as e:
+        error_log = e.stderr.decode() if e.stderr else "No details"
+        return f"FFmpeg Error: {error_log}"
