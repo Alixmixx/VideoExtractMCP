@@ -10,10 +10,21 @@ from utils import create_blurred_background_filter, build_drawtext_filters, get_
 # init the MCP
 mcp = FastMCP("Media Factory")
 
-# load the light whisper model
-print("Loading Whisper model...")
-model = WhisperModel("base")
-print("Model loaded")
+# lazy-loaded whisper model
+_whisper_model = None
+VALID_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3")
+
+def get_whisper_model():
+    """Load whisper model on first use. Reads WHISPER_MODEL_SIZE env var (default 'base')."""
+    global _whisper_model
+    if _whisper_model is None:
+        size = os.environ.get("WHISPER_MODEL_SIZE", "base")
+        if size not in VALID_WHISPER_SIZES:
+            raise ValueError(f"Invalid WHISPER_MODEL_SIZE '{size}'. Valid: {', '.join(VALID_WHISPER_SIZES)}")
+        print(f"Loading Whisper model ({size})...")
+        _whisper_model = WhisperModel(size)
+        print("Model loaded")
+    return _whisper_model
 
 @mcp.tool
 def get_video_metadata(file_path: str) -> str:
@@ -52,7 +63,7 @@ def get_raw_transcript(file_path: str) -> str:
     """
     try:
         validate_file_exists(file_path)
-        segments, _ = model.transcribe(file_path, word_timestamps=True)
+        segments, _ = get_whisper_model().transcribe(file_path, word_timestamps=True)
 
         data = []
         for s in segments:
@@ -254,7 +265,7 @@ def search_transcript(file_path: str, query: str) -> str:
         return f"Error: {e}"
 
     try:
-        segments, _ = model.transcribe(file_path, word_timestamps=True)
+        segments, _ = get_whisper_model().transcribe(file_path, word_timestamps=True)
 
         matches = []
         for s in segments:
