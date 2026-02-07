@@ -5,7 +5,7 @@ import os
 import json
 import re
 from typing import Optional
-from utils import create_blurred_background_filter, build_drawtext_filters, get_format_dimensions, build_crossfade_concat, apply_fade_in_out
+from utils import create_blurred_background_filter, build_drawtext_filters, get_format_dimensions, build_crossfade_concat, apply_fade_in_out, validate_file_exists, validate_time_range, get_video_duration
 
 # init the MCP
 mcp = FastMCP("Media Factory")
@@ -21,10 +21,8 @@ def get_video_metadata(file_path: str) -> str:
     Get all technical details about a video file (duration, resolution, format)
     Use this first to verify the file exist and is valid
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at :{file_path}"
-
     try:
+        validate_file_exists(file_path)
         probe = ffmpeg.probe(file_path)
 
         format_info = probe.get('format', {})
@@ -52,10 +50,8 @@ def get_raw_transcript(file_path: str) -> str:
     Get the full transcript as JSON
     This must be called to get text for context or generate captions
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at :{file_path}"
-
     try:
+        validate_file_exists(file_path)
         segments, _ = model.transcribe(file_path, word_timestamps=True)
 
         data = []
@@ -84,8 +80,12 @@ def extract_clip(file_path: str, start_time: float, end_time: float, output_form
         captions: Optional list of dicts [{"start": 0, "end": 5, "text": "..."}]. timestamps are relative to the clip
         caption_style: Optional dict with keys: font_size, font_color, highlight_color, bg_color, position (top/center/bottom), karaoke (bool)
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at :{file_path}"
+    try:
+        validate_file_exists(file_path)
+        duration = get_video_duration(file_path)
+        validate_time_range(start_time, end_time, duration)
+    except ValueError as e:
+        return f"Error: {e}"
 
     base, ext = os.path.splitext(file_path)
     final_output = f"{base}_clip_{output_format}{ext}"
@@ -140,11 +140,15 @@ def create_supercut(file_path: str, segments: list[list[float]], output_format: 
         transition: Optional, 'crossfade' (smooth blend between segments) or 'fade' (fade in/out on whole video)
         transition_duration: Duration of transition in seconds (default 0.5)
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at: {file_path}"
-
-    if not segments:
-        return "Error: No segments provided."
+    try:
+        validate_file_exists(file_path)
+        if not segments:
+            raise ValueError("No segments provided.")
+        duration = get_video_duration(file_path)
+        for start, end in segments:
+            validate_time_range(start, end, duration)
+    except ValueError as e:
+        return f"Error: {e}"
 
     base, ext = os.path.splitext(file_path)
     final_output = f"{base}_supercut_{output_format}{ext}"
@@ -207,8 +211,10 @@ def detect_scenes(file_path: str, threshold: float = 27.0, method: str = 'conten
         threshold: Sensitivity of detection (lower = more scenes). Default 27.0
         method: 'content' (pixel changes) or 'adaptive' (rolling average)
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at: {file_path}"
+    try:
+        validate_file_exists(file_path)
+    except ValueError as e:
+        return f"Error: {e}"
 
     try:
         from scenedetect import detect, ContentDetector, AdaptiveDetector
@@ -242,8 +248,10 @@ def search_transcript(file_path: str, query: str) -> str:
         file_path: Path to the source video
         query: Regex pattern to search for (case-insensitive)
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at: {file_path}"
+    try:
+        validate_file_exists(file_path)
+    except ValueError as e:
+        return f"Error: {e}"
 
     try:
         segments, _ = model.transcribe(file_path, word_timestamps=True)
@@ -278,8 +286,13 @@ def extract_frame(file_path: str, timestamp: float, output_format: str = 'png') 
         timestamp: Time in seconds to capture the frame
         output_format: Image format, 'png' or 'jpg' (default 'png')
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at: {file_path}"
+    try:
+        validate_file_exists(file_path)
+        duration = get_video_duration(file_path)
+        if timestamp < 0 or timestamp > duration:
+            raise ValueError(f"timestamp ({timestamp}) must be between 0 and {duration:.2f}s")
+    except ValueError as e:
+        return f"Error: {e}"
 
     base, _ = os.path.splitext(file_path)
     output_path = f"{base}_frame_{timestamp:.2f}.{output_format}"
@@ -307,8 +320,10 @@ def extract_audio(file_path: str, output_format: str = 'mp3') -> str:
         file_path: Path to the source video
         output_format: Audio format, e.g. 'mp3', 'wav', 'aac' (default 'mp3')
     """
-    if not os.path.exists(file_path):
-        return f"Error: File not found at: {file_path}"
+    try:
+        validate_file_exists(file_path)
+    except ValueError as e:
+        return f"Error: {e}"
 
     base, _ = os.path.splitext(file_path)
     output_path = f"{base}_audio.{output_format}"

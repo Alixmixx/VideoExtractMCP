@@ -1,4 +1,24 @@
 import ffmpeg
+import os
+
+def validate_file_exists(path):
+    """Raise ValueError if file does not exist."""
+    if not os.path.exists(path):
+        raise ValueError(f"File not found: {path}")
+
+def get_video_duration(path):
+    """Return video duration in seconds via ffprobe."""
+    probe = ffmpeg.probe(path)
+    return float(probe['format']['duration'])
+
+def validate_time_range(start, end, duration=None):
+    """Raise ValueError if the time range is invalid."""
+    if start < 0:
+        raise ValueError(f"start_time ({start}) must be >= 0")
+    if end <= start:
+        raise ValueError(f"end_time ({end}) must be greater than start_time ({start})")
+    if duration is not None and end > duration:
+        raise ValueError(f"end_time ({end}) exceeds video duration ({duration:.2f}s)")
 
 def create_blurred_background_filter(stream, width=1080, height=1920):
     """
